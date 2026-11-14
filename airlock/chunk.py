@@ -16,7 +16,8 @@ class Chunk:
     text: str
     start: int
     end: int
-    json_path: str | None = None
+    json_path: str | None = None  # for display; redaction uses json_keys
+    json_keys: tuple = ()
     signals: list[str] = field(default_factory=list)
 
 
@@ -71,22 +72,27 @@ def chunk_segments(text: str, breaks: list[int]) -> list[Chunk]:
     return chunks
 
 
-def iter_leaves(obj, path: str = ""):
+def iter_leaves(obj, keys: tuple = ()):
+    """(keys, value) for every string leaf; keys are the real dict keys / list indices."""
     if isinstance(obj, dict):
         for k, v in obj.items():
-            yield from iter_leaves(v, f"{path}.{k}" if path else str(k))
+            yield from iter_leaves(v, keys + (k,))
     elif isinstance(obj, list):
         for i, v in enumerate(obj):
-            yield from iter_leaves(v, f"{path}[{i}]")
+            yield from iter_leaves(v, keys + (i,))
     elif isinstance(obj, str):
-        yield path, obj
+        yield keys, obj
+
+
+def display_path(keys: tuple) -> str:
+    return "".join(f"[{k}]" if isinstance(k, int) else (f".{k}" if i else str(k)) for i, k in enumerate(keys))
 
 
 def chunk_json(obj) -> list[Chunk]:
     chunks: list[Chunk] = []
-    for path, value in iter_leaves(obj):
+    for keys, value in iter_leaves(obj):
         if len(value.strip()) < 12:  # ids, enums, short codes carry no instructions
             continue
         for s, e in split_spans(value):
-            chunks.append(Chunk(f"c{len(chunks)}", value[s:e], s, e, json_path=path))
+            chunks.append(Chunk(f"c{len(chunks)}", value[s:e], s, e, json_path=display_path(keys), json_keys=keys))
     return chunks

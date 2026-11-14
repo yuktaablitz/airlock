@@ -149,7 +149,8 @@ $("go").onclick = () => {
   let content = $("paste").value;
   try { content = JSON.parse(content); } catch {}
   run(fetch("/screen", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content, meta: { tool: "paste" }, user_goal: $("goal").value }) }));
+    body: JSON.stringify({ content, meta: { tool: "paste", fetch: /^https?:\/\/\S+$/.test(String(content).trim()) },
+      user_goal: $("goal").value }) }));
 };
 
 function render(r) {

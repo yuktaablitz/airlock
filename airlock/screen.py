@@ -48,14 +48,12 @@ class ScreenResult(BaseModel):
     stats: dict
 
 
-async def screen(content, meta: dict | None = None, user_goal: str = "", *, escalate: bool = True,
-                 tau_low: float | None = None, tau_high: float | None = None, write_audit: bool = True) -> ScreenResult:
+async def screen(content, meta: dict | None = None, user_goal: str = "", *, mode: str | None = None,
+                 write_audit: bool = True) -> ScreenResult:
+    """mode: 'recall' (Drex + Qwen on the band) or 'precision' (Drex only); default AIRLOCK_MODE."""
     t0 = time.perf_counter()
     meta = dict(meta or {})
-    tau_low = gate.TAU_LOW if tau_low is None else tau_low
-    tau_high = gate.TAU_HIGH if tau_high is None else tau_high
-    if not escalate:  # Drex-only: a single threshold, no band
-        tau_low = tau_high
+    tau_low, tau_high = gate.thresholds(mode or gate.MODE)
 
     body, kind = normalize(content, meta)
     if kind == "json":
@@ -73,15 +71,16 @@ async def screen(content, meta: dict | None = None, user_goal: str = "", *, esca
     reasons: dict[str, str] = {}
 
     escalated = [i for i, c in enumerate(chunks) if decisions[c.id] == "ESCALATE"]
-    s2_ms, s2_tokens = 0.0, 0
+    s2_ms, s2_tokens, s2_cost = 0.0, 0, 0.0
     if escalated:
         verdicts = await asyncio.gather(*(
             system2.judge(chunks[i], chunks[i - 1] if i else None, chunks[i + 1] if i + 1 < len(chunks) else None, user_goal)
             for i in escalated))
-        for i, (inj, reason, ms, tok) in zip(escalated, verdicts):
+        for i, v in zip(escalated, verdicts):
             cid = chunks[i].id
-            decisions[cid], by[cid], reasons[cid] = ("BLOCK" if inj else "PASS"), "S2", reason
-            s2_ms, s2_tokens = max(s2_ms, ms), s2_tokens + tok
+            decisions[cid], by[cid], reasons[cid] = ("BLOCK" if v.injection else "PASS"), "S2", v.reason
+            s2_ms, s2_tokens = max(s2_ms, v.ms), s2_tokens + v.in_tokens + v.out_tokens
+            s2_cost += system2.cost_usd(v)
 
     blocked = [c for c in chunks if decisions[c.id] == "BLOCK"]
     if kind == "json":
@@ -92,7 +91,7 @@ async def screen(content, meta: dict | None = None, user_goal: str = "", *, esca
     total_chars = sum(len(c.text) for c in chunks) or 1
     removed_chars = sum(len(c.text) for c in blocked)
     verdict = "clean" if not blocked else ("blocked" if removed_chars / total_chars > 0.8 else "redacted")
-    cost = (s1.tokens * clients.DREX_PRICE_IN + s1.out_tokens * clients.DREX_PRICE_OUT + s2_tokens * clients.QWEN_PRICE_IN) / 1e6
+    cost = (s1.tokens * clients.DREX_PRICE_IN + s1.out_tokens * clients.DREX_PRICE_OUT) / 1e6 + s2_cost
     removed = [Removed(id=c.id, text=c.text, p=s1.p.get(c.id, 0.0), by=by[c.id], reason=reasons.get(c.id, ""),
                        json_path=c.json_path) for c in blocked]
     views = [ChunkView(id=c.id, text=c.text, start=c.start, end=c.end, p=s1.p.get(c.id, 0.0), decision=decisions[c.id],
@@ -102,7 +101,7 @@ async def screen(content, meta: dict | None = None, user_goal: str = "", *, esca
              "tokens": s1.tokens + s2_tokens, "s1_tokens": s1.tokens, "s2_tokens": s2_tokens,
              "cost_usd": cost, "total_ms": round((time.perf_counter() - t0) * 1000, 1),
              "request_ids": s1.request_ids, "cache_hits": s1.cache_hits, "parser": meta.get("parser"),
-             "tau_low": tau_low, "tau_high": tau_high}
+             "tau_low": tau_low, "tau_high": tau_high, "mode": mode or gate.MODE}
 
     if write_audit:
         sid = uuid.uuid4().hex[:12]
@@ -115,6 +114,3 @@ async def screen(content, meta: dict | None = None, user_goal: str = "", *, esca
                         intent_probs=s1.intent_probs, kind=kind,
                         text=body if isinstance(body, str) else json.dumps(body, indent=2), chunks=views, stats=stats)
 
-
-def screen_sync(content, meta: dict | None = None, user_goal: str = "", **kw) -> ScreenResult:
-    return asyncio.run(screen(content, meta, user_goal, **kw))

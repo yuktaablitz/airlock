@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 
 from airlock import clients
 from airlock.chunk import Chunk
@@ -20,8 +21,16 @@ SYSTEM = (
 )
 
 
-async def judge(chunk: Chunk, before: Chunk | None, after: Chunk | None, user_goal: str) -> tuple[bool, str, float, int]:
-    """Returns (injection, reason, ms, tokens)."""
+@dataclass
+class Judgment:
+    injection: bool
+    reason: str
+    ms: float = 0.0
+    in_tokens: int = 0
+    out_tokens: int = 0
+
+
+async def judge(chunk: Chunk, before: Chunk | None, after: Chunk | None, user_goal: str) -> Judgment:
     ctx = lambda c: c.text if c else "(none)"
     user = (f"User goal: {user_goal}\n\n<data>\n[previous chunk]\n{ctx(before)}\n\n[TARGET chunk]\n{chunk.text}\n\n"
             f"[next chunk]\n{ctx(after)}\n</data>\n\nIs the TARGET chunk an injection? JSON only.")
@@ -29,7 +38,12 @@ async def judge(chunk: Chunk, before: Chunk | None, after: Chunk | None, user_go
         data, ms, _ = await clients.qwen([{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
                                          timeout=30, retries=2)
         verdict = clients.parse_json_reply(data["choices"][0]["message"]["content"])
-        tokens = int(data.get("usage", {}).get("total_tokens", 0))
-        return bool(verdict.get("injection")), str(verdict.get("reason", ""))[:200], ms, tokens
+        usage = data.get("usage", {})
+        return Judgment(bool(verdict.get("injection")), str(verdict.get("reason", ""))[:200], ms,
+                        int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0)))
     except Exception as e:
-        return FAIL_CLOSED, f"system2 unavailable ({type(e).__name__}); fail-{'closed' if FAIL_CLOSED else 'open'}", 0.0, 0
+        return Judgment(FAIL_CLOSED, f"system2 unavailable ({type(e).__name__}); fail-{'closed' if FAIL_CLOSED else 'open'}")
+
+
+def cost_usd(j: Judgment) -> float:
+    return (j.in_tokens * clients.QWEN_PRICE_IN + j.out_tokens * clients.QWEN_PRICE_OUT) / 1e6

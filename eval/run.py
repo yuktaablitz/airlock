@@ -12,7 +12,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import time
+
+os.environ["AIRLOCK_USE_ALLOWLIST"] = "0"  # reviewer feedback must not change eval prompts
 
 from airlock import clients, signals, system1, system2
 from airlock.chunk import chunk_text
@@ -57,9 +60,10 @@ async def drex_row(row: dict, sem: asyncio.Semaphore, s2sem: asyncio.Semaphore) 
 
     async def s2(i: int):
         async with s2sem:
-            inj, reason, ms, tok = await system2.judge(chunks[i], chunks[i - 1] if i else None,
-                                                       chunks[i + 1] if i + 1 < len(chunks) else None, row["user_goal"])
-            return chunks[i].id, {"injection": inj, "reason": reason, "ms": ms, "tokens": tok}
+            v = await system2.judge(chunks[i], chunks[i - 1] if i else None,
+                                    chunks[i + 1] if i + 1 < len(chunks) else None, row["user_goal"])
+            return chunks[i].id, {"injection": v.injection, "reason": v.reason, "ms": v.ms,
+                                  "in_tokens": v.in_tokens, "out_tokens": v.out_tokens}
 
     band = [i for i, c in enumerate(chunks) if SWEEP_LOW < s1.p.get(c.id, 0) < SWEEP_HIGH]
     judged = dict(await asyncio.gather(*(s2(i) for i in band)))
@@ -90,7 +94,8 @@ async def main(limit: int | None, split: str) -> None:
 
     t0 = time.time()
     out = await asyncio.gather(*(one(r) for r in rows))
-    path = ROOT / "runs" / f"eval_raw_{system1.CRITERIA_VERSION}.jsonl"
+    partial = "" if (split == "all" and not limit) else f"_partial_{split}_{limit or 'all'}"  # never overwrite a trial
+    path = ROOT / "runs" / f"eval_raw_{system1.CRITERIA_VERSION}{partial}.jsonl"
     path.write_text("\n".join(json.dumps(o) for o in out) + "\n")
     errs = sum("error" in o["drex"] for o in out), sum(o["baseline"].get("injection") is None for o in out)
     print(f"wrote {len(out)} rows to {path} in {time.time() - t0:.0f}s; errors drex={errs[0]} baseline={errs[1]}")

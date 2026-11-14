@@ -153,12 +153,20 @@ def load_web() -> list[dict]:
     return [{"cid": f"web-{i}", "task": "web", "text": p["text"][:MAX_CHARS], "url": p["url"]} for i, p in enumerate(pages)]
 
 
-def bipia_goals() -> list[tuple[str, str]]:
+def bipia_goals(bipia_split: str) -> list[tuple[str, str]]:
     goals = []
-    for fn in ("text_attack_test.json", "text_attack_train.json", "code_attack_test.json", "code_attack_train.json"):
-        for cat, items in json.loads((BIPIA / fn).read_text()).items():
+    for kind in ("text", "code"):
+        for cat, items in json.loads((BIPIA / f"{kind}_attack_{bipia_split}.json").read_text()).items():
             goals += [(f"bipia:{cat}", g) for g in items]
     return goals
+
+
+def split_sentences(items: list, rng: random.Random) -> dict[str, list]:
+    """Disjoint sentence pools: no injected or benign sentence appears in both dev and test."""
+    items = items[:]
+    rng.shuffle(items)
+    k = max(1, len(items) // 5)
+    return {"dev": items[:k], "test": items[k:]}
 
 
 def insert(text: str, snippet: str, rng: random.Random) -> tuple[str, list[int]]:
@@ -179,11 +187,17 @@ def main() -> None:
     # Keep the mix balanced: cap BIPIA tables, use all emails/code/web.
     by_task = {t: [c for c in carriers if c["task"] == t] for t in ("email", "table", "code")}
     pool = by_task["email"] + by_task["code"] + by_task["table"][:150] + web
+    holdout_carriers = by_task["table"][150:250]  # never used in dev or test
     rng.shuffle(pool)
-    for c in pool:  # split by carrier document: no leakage between dev and test
+    for c in pool:  # split by carrier document
         c["split"] = "dev" if rng.random() < 0.2 else "test"
+    for c in holdout_carriers:
+        c["split"] = "holdout"
 
-    goals = bipia_goals()
+    # Injected sentences are split too, so test measures unseen attacks and unseen benign look-alikes.
+    goals = {"dev": bipia_goals("train"), "test": bipia_goals("test")}  # BIPIA's own attack split
+    hand = split_sentences(HANDWRITTEN, rng)
+    hard = split_sentences(HARD_NEGATIVES, rng)
     rows = []
 
     def row(c, content, label, span, family):
@@ -193,10 +207,10 @@ def main() -> None:
     for i in range(N_POS):
         c = pool[i % len(pool)]
         if rng.random() < 0.3:
-            fam, attack = rng.choice(HANDWRITTEN)
+            fam, attack = rng.choice(hand[c["split"]])
             family = f"hand:{fam}"
         else:
-            cat, g = rng.choice(goals)
+            cat, g = rng.choice(goals[c["split"]])
             tname, tmpl = rng.choice(TEMPLATES)
             attack, family = tmpl.format(g=g), f"{cat}:{tname}"
         text, span = insert(c["text"], attack, rng)
@@ -206,15 +220,12 @@ def main() -> None:
         row(c, c["text"], 0, None, "clean")
     for i in range(N_HARD):
         c = pool[(i + 13) % len(pool)]
-        text, _ = insert(c["text"], rng.choice(HARD_NEGATIVES), rng)
+        text, _ = insert(c["text"], rng.choice(hard[c["split"]]), rng)
         row(c, text, 0, None, "hard_negative")
-    # Holdout: own RNG so the rows above are unchanged; reported separately, never used for tuning.
-    hrng = random.Random(SEED + 1)
-    for i in range(100):
-        c = pool[(i + 29) % len(pool)]
-        text, _ = insert(c["text"], hrng.choice(HARD_NEGATIVES_HOLDOUT), hrng)
-        rows.append({"id": f"r{len(rows)}", "split": "holdout", "user_goal": GOALS[c["task"]], "content": text,
-                     "label": 0, "injected_span": None, "source": c["cid"], "family": "hard_negative_holdout"})
+    # Holdout: new sentences on carriers outside dev/test; reported separately, never used for tuning.
+    for c in holdout_carriers:
+        text, _ = insert(c["text"], rng.choice(HARD_NEGATIVES_HOLDOUT), rng)
+        row(c, text, 0, None, "hard_negative_holdout")
 
     OUT.parent.mkdir(exist_ok=True)
     with OUT.open("w") as f:

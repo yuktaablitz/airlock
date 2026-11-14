@@ -18,6 +18,7 @@ PATTERNS = {
 
 
 _WORD = re.compile(r"[a-z0-9]{3,}")
+HIDDEN = "hidden_text_not_visible_when_rendered"
 
 
 def _hidden(line: str, seen: set[str]) -> bool:
@@ -48,5 +49,5 @@ def annotate(chunks: list[Chunk], visible_text: str | None = None) -> list[Chunk
         c.signals = [name for name, rx in PATTERNS.items() if rx.search(c.text)]
         if seen is not None:
             if _hidden(c.text, seen):
-                c.signals.append("hidden_text_not_visible_when_rendered")
+                c.signals.append(HIDDEN)
     return chunks

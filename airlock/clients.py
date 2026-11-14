@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import time
+import weakref
 from pathlib import Path
 
 import httpx
@@ -29,12 +30,13 @@ DREX_PRICE_OUT = float(os.getenv("DREX_PRICE_OUT", "0.10"))
 QWEN_PRICE_IN = float(os.getenv("QWEN_PRICE_IN", "0.20"))  # DeepInfra /models pricing, Qwen3.8-27B
 QWEN_PRICE_OUT = float(os.getenv("QWEN_PRICE_OUT", "2.50"))
 
-_http: dict[int, httpx.AsyncClient] = {}
+# Keyed on the loop object (weakly), not id(): a closed loop's id can be reused by the next asyncio.run.
+_http: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = weakref.WeakKeyDictionary()
 
 
 def http() -> httpx.AsyncClient:
     """One pooled client per event loop (asyncio.run in scripts, uvicorn's loop in the service)."""
-    loop = id(asyncio.get_running_loop())
+    loop = asyncio.get_running_loop()
     if loop not in _http:
         _http[loop] = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0),
                                         limits=httpx.Limits(max_connections=64))

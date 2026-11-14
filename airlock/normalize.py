@@ -8,8 +8,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-PDF_LIKE = {".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff"}
-
 
 def parse_document_ndi(path: str | Path) -> str:
     """NDI parse -> markdown, cached by file hash. Raises on any failure so callers can fall back."""
@@ -68,17 +66,20 @@ def fetch_url(url: str) -> str:
 
 
 def normalize(content: Any, meta: dict | None = None) -> tuple[str | dict | list, str]:
-    """Returns (text or parsed JSON, kind). kind in {text, json, document, web}."""
-    meta = meta or {}
+    """Returns (text or parsed JSON, kind). kind in {text, json, document, web}.
+
+    Content is untrusted, so a string is never opened as a file or fetched as a URL on its own say-so: only a
+    `Path` passed by our own code is parsed, and only `meta["fetch"] = True` (the caller asking) fetches a URL.
+    """
+    meta = meta if meta is not None else {}
     if isinstance(content, (dict, list)):
         return content, "json"
-    if isinstance(content, Path) or (isinstance(content, str) and len(content) < 1024
-                                     and Path(content).suffix.lower() in PDF_LIKE and Path(content).exists()):
+    if isinstance(content, Path):
         text, visible = parse_document(content)
         meta["parser"] = "pypdf+ndi" if visible is not None else "pypdf"
         meta["visible_text"] = visible
         return text, "document"
-    if isinstance(content, str) and content.startswith(("http://", "https://")) and "\n" not in content.strip():
+    if meta.get("fetch") and isinstance(content, str) and content.strip().startswith(("http://", "https://")):
         return fetch_url(content.strip()), "web"
     if isinstance(content, str):
         s = content.strip()

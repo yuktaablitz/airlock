@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import re
 
 from airlock.chunk import Chunk
 
@@ -22,30 +21,16 @@ def redact_text(text: str, blocked: list[Chunk], p: dict[str, float]) -> str:
     return "".join(out)
 
 
-def _set_path(obj, path: str, value):
-    parts = re.findall(r"[^.\[\]]+|\[\d+\]", path)
-    cur = obj
-    for i, part in enumerate(parts):
-        key = int(part[1:-1]) if part.startswith("[") else part
-        if i == len(parts) - 1:
-            cur[key] = value
-        else:
-            cur = cur[key]
-
-
-def _get_path(obj, path: str):
-    for part in re.findall(r"[^.\[\]]+|\[\d+\]", path):
-        obj = obj[int(part[1:-1])] if part.startswith("[") else obj[part]
-    return obj
-
-
 def redact_json(obj, blocked: list[Chunk], p: dict[str, float]):
     out = copy.deepcopy(obj)
-    by_path: dict[str, list[Chunk]] = {}
+    by_leaf: dict[tuple, list[Chunk]] = {}
     for c in blocked:
-        by_path.setdefault(c.json_path, []).append(c)
-    for path, cs in by_path.items():
-        _set_path(out, path, redact_text(_get_path(obj, path), cs, p))
+        by_leaf.setdefault(c.json_keys, []).append(c)
+    for keys, cs in by_leaf.items():
+        parent = out
+        for k in keys[:-1]:
+            parent = parent[k]
+        parent[keys[-1]] = redact_text(parent[keys[-1]], cs, p)
     return out
 
 

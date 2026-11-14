@@ -14,7 +14,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -46,9 +46,10 @@ async def screen_content(req: ScreenRequest) -> ScreenResult:
 @app.post("/screen/file")
 async def screen_file(file: UploadFile = File(...), user_goal: str = Form("")) -> ScreenResult:
     suffix = Path(file.filename or "upload").suffix
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
-        f.write(await file.read())
-    return await screen(Path(f.name), {"tool": "read_document", "source_name": file.filename}, user_goal)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / f"upload{suffix}"
+        path.write_bytes(await file.read())
+        return await screen(path, {"tool": "read_document", "source_name": file.filename}, user_goal)
 
 
 @app.post("/screen/sample/{name}")
@@ -105,7 +106,10 @@ class Allow(BaseModel):
 
 @app.post("/allow")
 async def allow(a: Allow) -> dict:
-    """Human review: a false positive becomes a benign example in Drex's criteria next time."""
+    """Human review: a false positive becomes a benign example in Drex's criteria next time. Only text Airlock
+    actually quarantined can be allowed, so this endpoint can't be used to whitelist arbitrary injections."""
+    if not any(q.get("text") == a.text for q in _tail(audit.QUARANTINE, 10_000)):
+        raise HTTPException(404, "not in quarantine")
     with system1.ALLOW.open("a") as f:
         f.write(json.dumps(a.model_dump()) + "\n")
     return {"ok": True}
