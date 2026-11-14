@@ -1,0 +1,8 @@
+.env
+data/raw/
+runs/
+!runs/results.md
+!runs/pareto.png
+__pycache__/
+.venv/
+*.pyc

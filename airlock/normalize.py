@@ -1,0 +1,79 @@
+"""Step 1: any tool result -> markdown text + kind. PDFs go through NDI (keeps hidden text); URLs through Keenable."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+PDF_LIKE = {".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff"}
+
+
+def parse_document_ndi(path: str | Path) -> str:
+    """NDI parse -> markdown. Raises on any failure so callers can fall back."""
+    from nace_sdk import NaceClient
+
+    with NaceClient(api_key=os.environ["NACE_API_KEY"]) as client:
+        uploaded = client.documents.upload(Path(path), on_conflict="new_version")
+        job = client.documents.parse(uploaded.as_source(), output={"formats": ["markdown"]})
+        done = client.jobs.wait(job.job_id, timeout=120)
+        doc = done.result["document"]
+        if doc.get("markdown"):
+            return doc["markdown"]
+        out = Path(path).with_suffix(".ndi.md")
+        client.jobs.download(job.job_id, doc["content_url"], out)
+        return out.read_text()
+
+
+def parse_document_pypdf(path: str | Path) -> str:
+    from pypdf import PdfReader
+
+    return "\n\n".join(page.extract_text() or "" for page in PdfReader(str(path)).pages)
+
+
+def parse_document(path: str | Path) -> tuple[str, str | None]:
+    """Returns (text_layer, visible_markdown).
+
+    The text layer is what an agent's file reader ingests, hidden text included. NDI parses the document as
+    rendered, i.e. what a human sees. Text in the first but not the second is hidden (white/tiny/off-page).
+    visible_markdown is None if NDI is unavailable (then we have no visibility signal and say so).
+    """
+    layer = parse_document_pypdf(path) if Path(path).suffix.lower() == ".pdf" else ""
+    try:
+        visible = parse_document_ndi(path)
+    except Exception as e:  # NDI down/slow: fall back, and say so
+        print(f"[airlock] NDI parse failed ({type(e).__name__}: {e}); no visibility signal")
+        visible = None
+    return (layer or visible or ""), visible
+
+
+def fetch_url(url: str) -> str:
+    import keenable
+
+    page = keenable.Keenable().fetch(url, max_chars=20000)
+    return page.content or ""
+
+
+def normalize(content: Any, meta: dict | None = None) -> tuple[str | dict | list, str]:
+    """Returns (text or parsed JSON, kind). kind in {text, json, document, web}."""
+    meta = meta or {}
+    if isinstance(content, (dict, list)):
+        return content, "json"
+    if isinstance(content, Path) or (isinstance(content, str) and len(content) < 1024
+                                     and Path(content).suffix.lower() in PDF_LIKE and Path(content).exists()):
+        text, visible = parse_document(content)
+        meta["parser"] = "pypdf+ndi" if visible is not None else "pypdf"
+        meta["visible_text"] = visible
+        return text, "document"
+    if isinstance(content, str) and content.startswith(("http://", "https://")) and "\n" not in content.strip():
+        return fetch_url(content.strip()), "web"
+    if isinstance(content, str):
+        s = content.strip()
+        if s[:1] in "{[":
+            try:
+                return json.loads(s), "json"
+            except json.JSONDecodeError:
+                pass
+        return content, "text"
+    return str(content), "text"
