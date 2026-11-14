@@ -37,4 +37,4 @@ uncertain band → Qwen3.8-27B → span redaction + audit log + human review loo
 
 ## 7 · Upstream
 - PR to nace-ai/intern: `tool-result-guard`, Intern's **first packaged extension**. It uses Intern's own System 1 client, adds tests and a doc page, and carries this ablation, as CONTRIBUTING asks.
-- Repo: github.com/<you>/airlock · run `uvicorn airlock.service:app` → localhost:8000
+- Repo: github.com/yuktaablitz/airlock · run `uvicorn airlock.service:app` → localhost:8000
