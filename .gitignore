@@ -1,8 +1,12 @@
 .env
 data/raw/
-runs/
-!runs/results.md
-!runs/pareto.png
+runs/*
+!runs/results_*.md
+!runs/results_*.json
+!runs/pareto_*.png
+!runs/thresholds_*.json
+!runs/eval_raw_*.jsonl
 __pycache__/
 .venv/
 *.pyc
+!runs/demo_*.jsonl
