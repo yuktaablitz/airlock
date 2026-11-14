@@ -81,20 +81,20 @@ async def agent(req: AgentRequest) -> dict:
 
 @app.get("/scenarios")
 async def scenarios() -> list[dict]:
-    from eval.scenarios import SCENARIOS
+    from eval.scenarios import SCENARIOS, adobe_scenarios
 
     return [{"id": s.id, "industry": s.industry, "title": s.title, "task": s.task, "source": s.source,
-             "attack_style": s.attack_style} for s in SCENARIOS]
+             "attack_style": s.attack_style} for s in [*SCENARIOS, *adobe_scenarios()]]
 
 
 @app.post("/scenarios/{sid}/run")
 async def run_scenario(sid: str) -> dict:
     """The injected variant, screened by Airlock, and the same agent acting on raw vs screened output."""
     from eval.agent_bench import agent
-    from eval.scenarios import ROOT as BENCH_ROOT, SCENARIOS
+    from eval.scenarios import ROOT as BENCH_ROOT, SCENARIOS, adobe_scenarios
 
-    s = next(x for x in SCENARIOS if x.id == sid)
-    content: str | Path = BENCH_ROOT / "demo" / "subtle" / "invoice.pdf" if sid == "finance-ap" else s.injected
+    s = next(x for x in [*SCENARIOS, *adobe_scenarios()] if x.id == sid)
+    content: str | Path = BENCH_ROOT / "demo" / "subtle" / "invoice.pdf" if sid == "finance-ap" else (s.image or s.injected)
     r = await screen(content, {"tool": "read", "source_name": s.source}, s.task)
     seen = r.sanitized if isinstance(r.sanitized, str) else json.dumps(r.sanitized, indent=2)
     raw_calls, safe_calls = await asyncio.gather(agent(s, s.injected, 0), agent(s, seen, 0))
