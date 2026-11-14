@@ -25,8 +25,9 @@ QWEN_MODEL = os.getenv("QWEN_MODEL", "Qwen/Qwen3.8-27B")
 
 # $ per 1M input / output tokens. Override via env once the console shows exact prices.
 DREX_PRICE_IN = float(os.getenv("DREX_PRICE_IN", "0.10"))
-QWEN_PRICE_IN = float(os.getenv("QWEN_PRICE_IN", "0.20"))
-QWEN_PRICE_OUT = float(os.getenv("QWEN_PRICE_OUT", "0.60"))
+DREX_PRICE_OUT = float(os.getenv("DREX_PRICE_OUT", "0.10"))
+QWEN_PRICE_IN = float(os.getenv("QWEN_PRICE_IN", "0.20"))  # DeepInfra /models pricing, Qwen3.8-27B
+QWEN_PRICE_OUT = float(os.getenv("QWEN_PRICE_OUT", "2.50"))
 
 _http: dict[int, httpx.AsyncClient] = {}
 

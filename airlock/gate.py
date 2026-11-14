@@ -7,7 +7,7 @@ import os
 
 from airlock.clients import ROOT
 
-_cfg = ROOT / "runs" / "thresholds.json"
+_cfg = ROOT / "runs" / f"thresholds_{os.getenv('AIRLOCK_CRITERIA', 'v2')}.json"
 _t = json.loads(_cfg.read_text()) if _cfg.exists() else {}
 TAU_LOW = float(os.getenv("AIRLOCK_TAU_LOW", _t.get("tau_low", 0.15)))
 TAU_HIGH = float(os.getenv("AIRLOCK_TAU_HIGH", _t.get("tau_high", 0.85)))

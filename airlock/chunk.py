@@ -61,6 +61,16 @@ def chunk_text(text: str, prefix: str = "c") -> list[Chunk]:
     return [Chunk(f"{prefix}{i}", text[s:e], s, e) for i, (s, e) in enumerate(split_spans(text))]
 
 
+def chunk_segments(text: str, breaks: list[int]) -> list[Chunk]:
+    """Chunk each [breaks[i], breaks[i+1]) segment separately so no chunk straddles a break (e.g. visible|hidden)."""
+    bounds = sorted({0, len(text), *breaks})
+    chunks: list[Chunk] = []
+    for a, b in zip(bounds, bounds[1:]):
+        for s, e in split_spans(text[a:b]):
+            chunks.append(Chunk(f"c{len(chunks)}", text[a + s:a + e], a + s, a + e))
+    return chunks
+
+
 def iter_leaves(obj, path: str = ""):
     if isinstance(obj, dict):
         for k, v in obj.items():

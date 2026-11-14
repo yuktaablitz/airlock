@@ -1,4 +1,4 @@
-"""Runs the three systems over data/eval.jsonl and stores raw per-row outputs in runs/eval_raw.jsonl.
+"""Runs the three systems over data/eval.jsonl and stores raw per-row outputs in runs/eval_raw_<criteria>.jsonl.
 
 Drex scores every chunk once; System 2 judges every chunk inside the widest band we might sweep
 (SWEEP_LOW..SWEEP_HIGH), so report.py can derive Drex-only and Airlock at any thresholds offline.
@@ -66,7 +66,7 @@ async def drex_row(row: dict, sem: asyncio.Semaphore, s2sem: asyncio.Semaphore) 
     return {
         "chunks": [{"id": c.id, "start": c.start, "end": c.end, "p": s1.p.get(c.id, 0.0), "signals": c.signals}
                    for c in chunks],
-        "s1_ms": s1.ms, "s1_tokens": s1.tokens, "doc_intent": s1.doc_intent, "request_ids": s1.request_ids,
+        "s1_ms": s1.ms, "s1_tokens": s1.tokens, "s1_out_tokens": s1.out_tokens, "doc_intent": s1.doc_intent, "request_ids": s1.request_ids,
         "s2": judged,
     }
 
@@ -90,7 +90,7 @@ async def main(limit: int | None, split: str) -> None:
 
     t0 = time.time()
     out = await asyncio.gather(*(one(r) for r in rows))
-    path = ROOT / "runs" / "eval_raw.jsonl"
+    path = ROOT / "runs" / f"eval_raw_{system1.CRITERIA_VERSION}.jsonl"
     path.write_text("\n".join(json.dumps(o) for o in out) + "\n")
     errs = sum("error" in o["drex"] for o in out), sum(o["baseline"].get("injection") is None for o in out)
     print(f"wrote {len(out)} rows to {path} in {time.time() - t0:.0f}s; errors drex={errs[0]} baseline={errs[1]}")

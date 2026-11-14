@@ -20,13 +20,33 @@ PATTERNS = {
 _WORD = re.compile(r"[a-z0-9]{3,}")
 
 
+def _hidden(line: str, seen: set[str]) -> bool:
+    words = _WORD.findall(line.lower())
+    return bool(words) and sum(w in seen for w in words) / len(words) < 0.6
+
+
+def visibility_breaks(text: str, visible_text: str | None) -> list[int]:
+    """Offsets where the text layer switches between lines a human can see and lines they can't."""
+    if not visible_text:
+        return []
+    seen = set(_WORD.findall(visible_text.lower()))
+    breaks, pos, prev = [], 0, None
+    for line in text.splitlines(keepends=True):
+        if line.strip():
+            h = _hidden(line, seen)
+            if prev is not None and h != prev:
+                breaks.append(pos)
+            prev = h
+        pos += len(line)
+    return breaks
+
+
 def annotate(chunks: list[Chunk], visible_text: str | None = None) -> list[Chunk]:
     """`visible_text`: NDI's rendering of the document. A chunk mostly absent from it is hidden from humans."""
     seen = set(_WORD.findall(visible_text.lower())) if visible_text else None
     for c in chunks:
         c.signals = [name for name, rx in PATTERNS.items() if rx.search(c.text)]
         if seen is not None:
-            words = _WORD.findall(c.text.lower())
-            if words and sum(w in seen for w in words) / len(words) < 0.6:
+            if _hidden(c.text, seen):
                 c.signals.append("hidden_text_not_visible_when_rendered")
     return chunks

@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Airlock</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3; --muted:#8b949e;
+          --pass:#2ea043; --esc:#d29922; --block:#f85149; --accent:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { padding:18px 28px; border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:22px; } header span { color:var(--muted); }
+  nav { display:flex; gap:4px; padding:0 28px; border-bottom:1px solid var(--line); }
+  nav button { background:none; border:0; color:var(--muted); padding:12px 14px; cursor:pointer; font-size:14px; border-bottom:2px solid transparent; }
+  nav button.on { color:var(--text); border-color:var(--accent); }
+  main { padding:20px 28px; max-width:1400px; }
+  .tab { display:none; } .tab.on { display:block; }
+  .row { display:grid; grid-template-columns: 1fr 1fr; gap:18px; }
+  @media (max-width: 900px) { .row { grid-template-columns:1fr; } main, header, nav { padding-left:16px; padding-right:16px; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; }
+  .panel h3 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  .samples { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+  button.btn { background:#21262d; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:7px 12px; cursor:pointer; }
+  button.btn:hover { border-color:var(--accent); } button.primary { background:#1f6feb; border-color:#1f6feb; }
+  input[type=text], textarea { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:8px; font:inherit; }
+  textarea { height:120px; font-family:ui-monospace, Menlo, monospace; font-size:12px; }
+  .pipe { display:flex; gap:6px; flex-wrap:wrap; margin:14px 0; }
+  .step { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; min-width:120px; }
+  .step b { display:block; font-size:12px; } .step small { color:var(--muted); }
+  .step.hot { border-color:var(--block); }
+  .chunk { border-left:4px solid var(--line); background:var(--bg); padding:8px 10px; margin-bottom:6px; border-radius:4px; }
+  .chunk .meta { display:flex; gap:8px; align-items:center; font-size:12px; color:var(--muted); margin-bottom:4px; flex-wrap:wrap; }
+  .chunk pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:12px; font-family:ui-monospace, Menlo, monospace; }
+  .badge { padding:1px 7px; border-radius:10px; font-size:11px; font-weight:600; color:#000; }
+  .PASS { background:var(--pass); } .BLOCK { background:var(--block); } .ESCALATE { background:var(--esc); }
+  .bar { flex:0 0 90px; height:6px; background:#21262d; border-radius:3px; overflow:hidden; }
+  .bar i { display:block; height:100%; }
+  .sig { background:#30363d; color:var(--text); padding:1px 6px; border-radius:4px; font-size:11px; }
+  pre.out { white-space:pre-wrap; word-break:break-word; background:var(--bg); padding:10px; border-radius:6px; max-height:420px; overflow:auto; font-size:12px; margin:0; }
+  .verdict { font-size:18px; font-weight:700; } .clean { color:var(--pass); } .redacted, .blocked { color:var(--block); }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th, td { border-bottom:1px solid var(--line); padding:7px 8px; text-align:right; } th:first-child, td:first-child { text-align:left; }
+  th { color:var(--muted); font-weight:600; }
+  tr.win td { background:rgba(46,160,67,.08); }
+  .tablewrap { overflow-x:auto; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:12px; margin-bottom:18px; }
+  .kpi { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  .kpi b { font-size:26px; display:block; } .kpi small { color:var(--muted); }
+  .muted { color:var(--muted); } img { max-width:100%; border-radius:6px; background:#fff; }
+  .spin { color:var(--muted); font-style:italic; }
+</style>
+</head>
+<body>
+<header><h1>🛡 Airlock</h1><span>An inbound firewall for AI agents: every tool result is screened by Drex before it reaches the model</span></header>
+<nav>
+  <button class="on" data-tab="live">Live screening</button>
+  <button data-tab="results">Measured results</button>
+  <button data-tab="audit">Audit &amp; review</button>
+</nav>
+<main>
+<section id="live" class="tab on">
+  <div class="panel">
+    <h3>1 · Tool result the agent is about to read</h3>
+    <div class="samples">
+      <button class="btn" data-sample="invoice_poisoned">Invoice PDF, hidden note to AI</button>
+      <button class="btn" data-sample="invoice_subtle">Invoice PDF, hidden "bank change" notice</button>
+      <button class="btn" data-sample="invoice_clean">Clean invoice PDF</button>
+      <button class="btn" data-sample="ticket_json">Support-ticket API JSON</button>
+      <label class="btn">Upload file<input id="file" type="file" hidden></label>
+    </div>
+    <input id="goal" type="text" value="Summarize the payment terms and remittance details.">
+    <p class="muted" style="margin:8px 0 4px">…or paste any text / JSON / URL (URLs are fetched with Keenable):</p>
+    <textarea id="paste" placeholder="Paste a tool result here"></textarea>
+    <p><button class="btn primary" id="go">Screen pasted content</button> <span id="status" class="spin"></span></p>
+  </div>
+
+  <div id="pipeline" class="pipe"></div>
+
+  <div class="row">
+    <div class="panel"><h3>2 · Drex scores every chunk in one request</h3><div id="chunks" class="muted">Pick a sample above.</div></div>
+    <div class="panel">
+      <h3>3 · What the agent receives</h3>
+      <div id="verdict"></div>
+      <pre id="sanitized" class="out"></pre>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:18px">
+    <h3>4 · Same agent (Qwen3.8-27B), same task: without vs with Airlock</h3>
+    <button class="btn primary" id="agentbtn" disabled>Run the agent both ways</button> <span id="agentstatus" class="spin"></span>
+    <div class="row" style="margin-top:12px">
+      <div><b style="color:var(--block)">Without Airlock</b><pre id="raw_ans" class="out"></pre></div>
+      <div><b style="color:var(--pass)">With Airlock</b><pre id="safe_ans" class="out"></pre></div>
+    </div>
+  </div>
+</section>
+
+<section id="results" class="tab">
+  <div id="kpis" class="kpis"></div>
+  <div class="panel tablewrap"><h3>Test split · thresholds fixed on dev</h3><div id="rtable"></div><p id="rnote" class="muted"></p></div>
+  <div class="row" style="margin-top:18px">
+    <div class="panel"><h3>Quality vs cost</h3><img src="/results/pareto.png" alt="F1 versus cost per 1,000 screened results for each system"></div>
+    <div class="panel tablewrap"><h3>Held-out hard negatives (never used for tuning)</h3><div id="htable"></div>
+      <h3 style="margin-top:18px">Recall by attack family</h3><div id="ftable"></div></div>
+  </div>
+</section>
+
+<section id="audit" class="tab">
+  <div class="row">
+    <div class="panel"><h3>Quarantine · human review</h3><div id="quar"></div></div>
+    <div class="panel tablewrap"><h3>Audit log (one row per chunk)</h3><div id="alog"></div></div>
+  </div>
+</section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pct = (x) => (100 * x).toFixed(1) + "%";
+let last = null;
+
+document.querySelectorAll("nav button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll("nav button, .tab").forEach((e) => e.classList.remove("on"));
+  b.classList.add("on"); $(b.dataset.tab).classList.add("on");
+  if (b.dataset.tab === "results") loadResults();
+  if (b.dataset.tab === "audit") loadAudit();
+});
+
+async function run(promise) {
+  $("status").textContent = "screening…"; $("agentbtn").disabled = true;
+  try {
+    const r = await promise;
+    if (!r.ok) throw new Error(await r.text());
+    last = await r.json(); render(last); $("status").textContent = "";
+    $("agentbtn").disabled = false; $("raw_ans").textContent = ""; $("safe_ans").textContent = "";
+  } catch (e) { $("status").textContent = "error: " + e.message.slice(0, 200); }
+}
+
+document.querySelectorAll("[data-sample]").forEach((b) => b.onclick = () => {
+  const f = new FormData(); f.append("user_goal", $("goal").value);
+  run(fetch("/screen/sample/" + b.dataset.sample, { method: "POST", body: f }));
+});
+$("file").onchange = () => {
+  const f = new FormData(); f.append("file", $("file").files[0]); f.append("user_goal", $("goal").value);
+  run(fetch("/screen/file", { method: "POST", body: f }));
+};
+$("go").onclick = () => {
+  let content = $("paste").value;
+  try { content = JSON.parse(content); } catch {}
+  run(fetch("/screen", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content, meta: { tool: "paste" }, user_goal: $("goal").value }) }));
+};
+
+function render(r) {
+  const s = r.stats, blocked = r.chunks.filter((c) => c.decision === "BLOCK").length;
+  const steps = [
+    ["Normalize", s.parser ? (s.parser === "pypdf+ndi" ? "text layer + NDI render" : s.parser) : r.kind],
+    ["Chunk", `${s.chunks} chunks`],
+    ["Drex (System 1)", `${s.s1_ms} ms · 1 request`],
+    ["Gate", `τ ${s.tau_low} / ${s.tau_high}`],
+    ["Qwen (System 2)", s.s2_calls ? `${s.s2_calls} chunk(s) · ${s.s2_ms} ms` : "not needed"],
+    ["Redact", blocked ? `${blocked} span(s) removed` : "nothing removed"],
+  ];
+  $("pipeline").innerHTML = steps.map(([a, b], i) =>
+    `<div class="step ${(i === 5 && blocked) ? "hot" : ""}"><b>${a}</b><small>${esc(b)}</small></div>`).join("") +
+    `<div class="step"><b>Total</b><small>${s.total_ms} ms · $${(s.cost_usd * 1000).toFixed(3)} / 1k</small></div>`;
+  $("chunks").innerHTML = r.chunks.map((c) => {
+    const color = c.decision === "BLOCK" ? "var(--block)" : c.decision === "PASS" ? "var(--pass)" : "var(--esc)";
+    const label = c.by === "S2" ? `${c.decision} · decided by Qwen` : c.decision;
+    return `<div class="chunk" style="border-color:${color}"><div class="meta">
+      <b>${c.id}</b><span class="badge ${c.decision}">${label}</span>
+      <span class="bar"><i style="width:${Math.max(2, c.p * 100)}%;background:${color}"></i></span>p=${c.p.toFixed(3)}
+      ${c.json_path ? `<span class="sig">${esc(c.json_path)}</span>` : ""}
+      ${c.signals.map((x) => `<span class="sig">${esc(x)}</span>`).join("")}</div>
+      <pre>${esc(c.text)}</pre>${c.reason ? `<div class="muted" style="font-size:12px">Qwen: ${esc(c.reason)}</div>` : ""}</div>`;
+  }).join("");
+  $("verdict").innerHTML = `<span class="verdict ${r.verdict}">${r.verdict.toUpperCase()}</span>
+    <span class="muted"> · intent: <b>${esc(r.doc_intent)}</b></span>`;
+  $("sanitized").textContent = typeof r.sanitized === "string" ? r.sanitized : JSON.stringify(r.sanitized, null, 2);
+}
+
+$("agentbtn").onclick = async () => {
+  $("agentstatus").textContent = "asking the agent twice…";
+  const sanitized = typeof last.sanitized === "string" ? last.sanitized : JSON.stringify(last.sanitized, null, 2);
+  try {
+    const r = await (await fetch("/agent", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ raw: last.text, sanitized, user_goal: $("goal").value }) })).json();
+    $("raw_ans").textContent = r.without_airlock; $("safe_ans").textContent = r.with_airlock;
+    $("agentstatus").textContent = "";
+  } catch (e) { $("agentstatus").textContent = "error: " + e.message; }
+};
+
+const NAMES = { baseline: "LLM guard (Qwen3.8-27B, whole doc)", drex: "Drex only", airlock: "Airlock (Drex → Qwen on band)" };
+async function loadResults() {
+  const d = await (await fetch("/results")).json();
+  if (!d.results) { $("rtable").textContent = "Run python -m eval.run && python -m eval.report first."; return; }
+  const [b, , a] = d.results, hb = d.holdout?.[0], ha = d.holdout?.[2];
+  $("kpis").innerHTML = [
+    [a.f1.toFixed(3), `Airlock F1 (LLM guard ${b.f1.toFixed(3)})`],
+    [`${a.p50_ms.toFixed(0)} ms`, `p50 latency (LLM guard ${b.p50_ms.toFixed(0)} ms)`],
+    [`${(b.p95_ms / a.p95_ms).toFixed(1)}×`, "lower p95 latency than the LLM guard"],
+    ha ? [pct(ha.fpr_negatives), `false positives on unseen benign instructions (LLM guard ${pct(hb.fpr_negatives)})`] : null,
+    [pct(a.escalated_pct), "chunks escalated to the LLM"],
+  ].filter(Boolean).map(([v, l]) => `<div class="kpi"><b>${v}</b><small>${l}</small></div>`).join("");
+  const cell = (r, k) => (k in r) ? pct(r[k]) : "n/a";
+  $("rtable").innerHTML = `<table><tr><th>System</th><th>Precision</th><th>Recall</th><th>F1</th><th>FPR hard neg.</th>
+    <th>p50 ms</th><th>p95 ms</th><th>$ / 1k</th><th>Span coverage</th><th>Benign text kept</th><th>Escalated</th></tr>` +
+    d.results.map((r) => `<tr class="${r.system === "airlock" ? "win" : ""}"><td>${NAMES[r.system]}</td><td>${pct(r.precision)}</td>
+      <td>${pct(r.recall)}</td><td>${r.f1.toFixed(3)}</td><td>${pct(r.fpr_hard)}</td><td>${r.p50_ms.toFixed(0)}</td>
+      <td>${r.p95_ms.toFixed(0)}</td><td>$${r.usd_per_1k.toFixed(3)}</td><td>${cell(r, "span_coverage")}</td>
+      <td>${cell(r, "benign_text_kept")}</td><td>${cell(r, "escalated_pct")}</td></tr>`).join("") + "</table>";
+  $("rnote").textContent = `n=${d.results[0].n} test rows. Thresholds from dev: Drex-only τ=${d.thresholds.drex_only_tau}; ` +
+    `Airlock τ_low=${d.thresholds.tau_low}, τ_high=${d.thresholds.tau_high}.`;
+  $("htable").innerHTML = d.holdout ? `<table><tr><th>System</th><th>False-positive rate</th></tr>` +
+    d.holdout.map((r) => `<tr><td>${NAMES[r.system]}</td><td>${pct(r.fpr_negatives)}</td></tr>`).join("") + "</table>" : "";
+  const fams = Object.keys(d.results[0].recall_by_family);
+  $("ftable").innerHTML = `<table><tr><th>Family</th>${d.results.map((r) => `<th>${NAMES[r.system]}</th>`).join("")}</tr>` +
+    fams.map((f) => `<tr><td>${f}</td>${d.results.map((r) => `<td>${pct(r.recall_by_family[f] ?? 0)}</td>`).join("")}</tr>`).join("") + "</table>";
+}
+
+async function loadAudit() {
+  const d = await (await fetch("/audit")).json();
+  $("quar").innerHTML = d.quarantine.length ? d.quarantine.map((q, i) => `<div class="chunk" style="border-color:var(--block)">
+    <div class="meta"><b>${esc(q.id)}</b> p=${q.p.toFixed(3)} · by ${q.by} · ${esc(q.source.name || q.source.tool)}
+    <button class="btn" data-allow="${i}" style="margin-left:auto">Mark false positive</button></div><pre>${esc(q.text)}</pre></div>`).join("")
+    : `<p class="muted">Nothing quarantined yet.</p>`;
+  document.querySelectorAll("[data-allow]").forEach((b) => b.onclick = async () => {
+    const q = d.quarantine[+b.dataset.allow];
+    await fetch("/allow", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: q.text, screen_id: q.screen_id }) });
+    b.textContent = "Added to allow-list"; b.disabled = true;
+  });
+  $("alog").innerHTML = `<table><tr><th>Chunk</th><th>p</th><th>Decision</th><th>By</th><th>Drex ms</th><th>Request id</th></tr>` +
+    d.audit.map((a) => `<tr><td>${a.chunk_id}</td><td>${a.p.toFixed(3)}</td><td><span class="badge ${a.decision}">${a.decision}</span></td>
+      <td>${a.decided_by}</td><td>${a.s1_ms}</td><td class="muted">${esc((a.request_ids || [])[0] || "")}</td></tr>`).join("") + "</table>";
+}
+</script>
+</body>
+</html>

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,7 +12,18 @@ PDF_LIKE = {".pdf", ".docx", ".png", ".jpg", ".jpeg", ".tiff"}
 
 
 def parse_document_ndi(path: str | Path) -> str:
-    """NDI parse -> markdown. Raises on any failure so callers can fall back."""
+    """NDI parse -> markdown, cached by file hash. Raises on any failure so callers can fall back."""
+    from airlock.clients import CACHE
+
+    cached = CACHE / f"ndi-{hashlib.sha256(Path(path).read_bytes()).hexdigest()[:32]}.md"
+    if cached.exists():
+        return cached.read_text()
+    markdown = _ndi_parse(path)
+    cached.write_text(markdown)
+    return markdown
+
+
+def _ndi_parse(path: str | Path) -> str:
     from nace_sdk import NaceClient
 
     with NaceClient(api_key=os.environ["NACE_API_KEY"]) as client:

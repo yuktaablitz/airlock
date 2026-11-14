@@ -10,7 +10,7 @@ import uuid
 from pydantic import BaseModel
 
 from airlock import audit, clients, gate, redact, signals, system1, system2
-from airlock.chunk import Chunk, chunk_json, chunk_text
+from airlock.chunk import Chunk, chunk_json, chunk_segments, chunk_text
 from airlock.normalize import normalize
 
 
@@ -58,7 +58,12 @@ async def screen(content, meta: dict | None = None, user_goal: str = "", *, esca
         tau_low = tau_high
 
     body, kind = normalize(content, meta)
-    chunks: list[Chunk] = chunk_json(body) if kind == "json" else chunk_text(body)
+    if kind == "json":
+        chunks: list[Chunk] = chunk_json(body)
+    elif meta.get("visible_text"):
+        chunks = chunk_segments(body, signals.visibility_breaks(body, meta["visible_text"]))
+    else:
+        chunks = chunk_text(body)
     signals.annotate(chunks, meta.get("visible_text"))
     source = {"tool": meta.get("tool", "unknown"), "name": meta.get("source_name", "")}
 
@@ -87,7 +92,7 @@ async def screen(content, meta: dict | None = None, user_goal: str = "", *, esca
     total_chars = sum(len(c.text) for c in chunks) or 1
     removed_chars = sum(len(c.text) for c in blocked)
     verdict = "clean" if not blocked else ("blocked" if removed_chars / total_chars > 0.8 else "redacted")
-    cost = (s1.tokens * clients.DREX_PRICE_IN + s2_tokens * clients.QWEN_PRICE_IN) / 1e6
+    cost = (s1.tokens * clients.DREX_PRICE_IN + s1.out_tokens * clients.DREX_PRICE_OUT + s2_tokens * clients.QWEN_PRICE_IN) / 1e6
     removed = [Removed(id=c.id, text=c.text, p=s1.p.get(c.id, 0.0), by=by[c.id], reason=reasons.get(c.id, ""),
                        json_path=c.json_path) for c in blocked]
     views = [ChunkView(id=c.id, text=c.text, start=c.start, end=c.end, p=s1.p.get(c.id, 0.0), decision=decisions[c.id],
