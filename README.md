@@ -11,6 +11,73 @@ Built at Drexathon (Apex Predator track): a guard job usually given to an LLM, h
 
 **Upstream:** the core of this ships to Intern as its first packaged extension, `tool-result-guard`: [nace-ai/intern#4](https://github.com/nace-ai/intern/pull/4).
 
+## The niche: AI agents that pay invoices
+
+A general "guard for all agents" is a weak claim. Airlock is built for one job where it fits exactly: **accounts-payable
+agents that read vendor documents and move money.**
+
+### The problem already costs billions, and agents add a new channel for it
+
+- **Business email compromise (BEC)** is a fraudster posing as a vendor or executive to redirect a payment. In 2024 the
+  FBI logged **21,442 BEC complaints and $2.77 billion in losses** [1]. That is about **1,800 complaints and $231 million
+  a month**, or roughly **$129,000 per incident**.
+- **79% of organisations** reported attempted or actual payments fraud in 2024. BEC was the top avenue, cited by **63%** [2].
+- **Agents are taking over the reading.** Invoice capture, matching, approval routing and payment are being handed to AI
+  agents: 69% of AP teams automate invoice data capture, and 28% run fully touchless processing [3][4].
+- **Injected instructions are already on the open web.** One measurement study found **15,387 validated indirect prompt
+  injections on 11,722 pages across 2,042 hosts**. A small set of reusable templates accounts for 95% of them, and they
+  persist for months [5]. Palo Alto Unit 42 reports the same pattern in live telemetry [6].
+
+Classic BEC fools a clerk with an email. Once an agent reads the invoice, the fraudster only needs to fool a parser. A
+line of 4pt white text saying "our bank account has changed" is invisible to the human approver, but it lands in the
+agent's context as plain text. Nobody reads it, and the agent acts on it.
+
+### Why this niche fits Airlock exactly
+
+| What AP needs | What Airlock does |
+|---|---|
+| Catch hidden changes that never address an AI ("remit to the new account") | NDI renders the page as a human sees it. Text that only exists in the file layer gets a dedicated Drex question: *does this hidden text change payment details, amounts, dates or payees?* |
+| Don't flag normal invoices. They are full of instructions for humans: "remit to", "pay by Friday", "include the invoice number" | Drex flags **3%** of unseen benign command-like text; the Qwen LLM guard flags **83%**. On 10,000 instruction-bearing invoices a month, that is roughly 300 vs 8,300 manual reviews, which decides whether automation pays off at all. |
+| Keep the invoice usable when something is removed | Sentence-level cutting. The agent still pays the real account from the same document (85% of tasks done under attack vs 0% for the LLM guard). |
+| Thresholds an auditor can sign off on | Calibrated probabilities (ECE 0.008), so "block at 0.8" means what it says. |
+| An audit trail (SOX, internal controls) | Every chunk is logged with its probability, decision and Drex request id. Removed text goes to a review queue, and reviewer corrections feed back into the criteria. |
+| No added delay in the payment run | About 250–400 ms per document. An LLM guard's p95 is 2.7 s. |
+
+### What we measured in this niche
+
+In the agent benchmark's accounts-payable scenario (hidden "bank account changed" notice, 5 samples each):
+
+| Defense | Agent paid the attacker | Agent paid the real account |
+|---|---|---|
+| No defense | 4/5 | 0/5 |
+| LLM guard | 4/5 (missed it: the note never mentions AI) | 0/5 |
+| **Airlock** | **0/5** | **5/5** |
+
+The expense-receipt image made with Adobe Firefly and Express shows the same pattern on a photo: a faint note asking the
+agent to file $1,240 was cut, and the agent filed the real $86.40.
+
+This is a small sample: one invoice template and five runs per arm. It shows the mechanism works; it does not
+estimate a production fraud rate. The next step is a corpus of real vendor invoices with seeded hidden-text changes, scored
+on the same utility and attack-success metrics.
+
+### Where Airlock is *not* the right tool
+
+Conflicting instructions between real colleagues are a different problem. Examples: a Slack thread where the CFO
+approves a payment and a controller later says to hold it, or two managers giving contradictory deadlines. None of that
+is injected; every message is legitimate. Resolving it means checking authority and consistency (who is allowed to
+approve, which message supersedes which). Drex could score that too, with different questions such as "is this approver
+authorised for this amount?" or "does this message override an earlier one?". That would be a separate product, and we
+don't claim Airlock does it.
+
+### Sources
+
+1. FBI IC3, 2024 Internet Crime Report (BEC: 21,442 complaints, $2.77B), summarised by [Nacha](https://www.nacha.org/news/fbis-ic3-finds-almost-85-billion-lost-business-email-compromise-last-three-years) and [CyberScoop](https://cyberscoop.com/fbi-ic3-cybercrime-report-2024-key-statistics-trends/).
+2. AFP, [2025 Payments Fraud and Control Survey](https://www.financialprofessionals.org/about/learn-more/press-releases/Details/survey-79-percent-of-organizations-were-victims-of-attempted-or-actual-payments-fraud-activity-in-2024) (79% targeted; BEC 63%).
+3. IOFM 2025 figures as compiled in [this AP automation roundup](https://stealthagents.com/research/ai-accounts-payable-automation-statistics-2026) (secondary source).
+4. Forrester, [Top agentic AI use cases for AP automation in 2026](https://www.forrester.com/blogs/top-agentic-ai-use-cases-for-ap-automation-in-2026/).
+5. Khodayari et al., [Indirect Prompt Injection in the Wild: An Empirical Study of Prevalence, Techniques, and Objectives](https://arxiv.org/abs/2604.27202).
+6. Palo Alto Networks Unit 42, [Fooling AI Agents: Web-Based Indirect Prompt Injection Observed in the Wild](https://unit42.paloaltonetworks.com/ai-agent-prompt-injection/).
+
 ## Evaluation
 
 The evaluation has two levels, because a guard can look good as a classifier and still break the agent it protects.
