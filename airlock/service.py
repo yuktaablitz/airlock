@@ -79,6 +79,44 @@ async def agent(req: AgentRequest) -> dict:
     return {"without_airlock": raw, "with_airlock": safe}
 
 
+@app.get("/scenarios")
+async def scenarios() -> list[dict]:
+    from eval.scenarios import SCENARIOS
+
+    return [{"id": s.id, "industry": s.industry, "title": s.title, "task": s.task, "source": s.source,
+             "attack_style": s.attack_style} for s in SCENARIOS]
+
+
+@app.post("/scenarios/{sid}/run")
+async def run_scenario(sid: str) -> dict:
+    """The injected variant, screened by Airlock, and the same agent acting on raw vs screened output."""
+    from eval.agent_bench import agent
+    from eval.scenarios import ROOT as BENCH_ROOT, SCENARIOS
+
+    s = next(x for x in SCENARIOS if x.id == sid)
+    content: str | Path = BENCH_ROOT / "demo" / "subtle" / "invoice.pdf" if sid == "finance-ap" else s.injected
+    r = await screen(content, {"tool": "read", "source_name": s.source}, s.task)
+    seen = r.sanitized if isinstance(r.sanitized, str) else json.dumps(r.sanitized, indent=2)
+    raw_calls, safe_calls = await asyncio.gather(agent(s, s.injected, 0), agent(s, seen, 0))
+    return {"screen": r.model_dump(), "raw": s.injected,
+            "without": {"calls": raw_calls, "attacked": s.attacked(raw_calls), "utility": s.utility(raw_calls)},
+            "with": {"calls": safe_calls, "attacked": s.attacked(safe_calls), "utility": s.utility(safe_calls)}}
+
+
+@app.get("/bench")
+async def bench() -> dict:
+    out = {}
+    for key, name in (("agent", "agent_bench.json"), ("stats", f"stats_{system1.CRITERIA_VERSION}.json")):
+        path = ROOT / "runs" / name
+        out[key] = json.loads(path.read_text()) if path.exists() else None
+    return out
+
+
+@app.get("/results/calibration.png")
+async def calibration_png() -> FileResponse:
+    return FileResponse(ROOT / "runs" / f"calibration_{system1.CRITERIA_VERSION}.png")
+
+
 @app.get("/results")
 async def results() -> dict:
     path = ROOT / "runs" / f"results_{system1.CRITERIA_VERSION}.json"

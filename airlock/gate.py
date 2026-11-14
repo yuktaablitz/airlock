@@ -1,8 +1,9 @@
 """Step 5: probability -> PASS / ESCALATE / BLOCK. Thresholds are fixed on the dev split (see eval/report.py).
 
 Two operating points, both tuned on dev for the active criteria version:
-  recall    (default) Drex decides the clear cases, Qwen judges the band between τ_low and τ_high.
-  precision           Drex alone at its own threshold; no LLM call, fewest false positives.
+  recall              Drex decides the clear cases, Qwen judges the band between τ_low and τ_high.
+  precision (default) Drex alone at its own threshold; no LLM call, fewest false positives. Same F1 as recall
+                      (McNemar p=1, runs/stats_v3.md), a fifth of the false positives.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from airlock.system1 import CRITERIA_VERSION
 
 _cfg = ROOT / "runs" / f"thresholds_{CRITERIA_VERSION}.json"
 _t = json.loads(_cfg.read_text()) if _cfg.exists() else {}
-MODE = os.getenv("AIRLOCK_MODE", "recall")
+MODE = os.getenv("AIRLOCK_MODE", "precision")
 TAU_LOW = float(os.getenv("AIRLOCK_TAU_LOW", _t.get("tau_low", 0.15)))
 TAU_HIGH = float(os.getenv("AIRLOCK_TAU_HIGH", _t.get("tau_high", 0.85)))
 DREX_ONLY_TAU = float(os.getenv("AIRLOCK_TAU", _t.get("drex_only_tau", 0.5)))

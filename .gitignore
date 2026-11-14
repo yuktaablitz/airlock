@@ -12,3 +12,5 @@ __pycache__/
 !runs/demo_*.jsonl
 !runs/archive_leaky/
 !runs/agent_bench*
+!runs/stats_*
+!runs/calibration_*
