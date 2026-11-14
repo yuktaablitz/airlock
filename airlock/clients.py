@@ -19,7 +19,8 @@ load_dotenv(ROOT / ".env")
 CACHE = ROOT / "runs" / "cache"
 CACHE.mkdir(parents=True, exist_ok=True)
 
-DREX_URL = "https://console.nace.ai/v1/systemone"
+# drex.nace.ai is the Drex API host listed in nace-sdk; console.nace.ai sits behind a bot checkpoint under load.
+DREX_URL = os.getenv("DREX_URL", "https://drex.nace.ai/v1/systemone")
 DREX_MODEL = os.getenv("DREX_MODEL", "drex-max-v1.1")
 DEEPINFRA_URL = "https://api.deepinfra.com/v1/openai/chat/completions"
 QWEN_MODEL = os.getenv("QWEN_MODEL", "Qwen/Qwen3.8-27B")
@@ -82,9 +83,15 @@ async def post_json(kind: str, url: str, key_env: str, body: dict, *, retries: i
     raise ModelError(f"{kind} failed after {retries} tries: {last}")
 
 
+_drex_slots: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = weakref.WeakKeyDictionary()
+
+
 async def drex(state: dict, questions: dict, **kw) -> tuple[dict, float, bool]:
-    return await post_json("drex", DREX_URL, "NACE_API_KEY",
-                           {"model": DREX_MODEL, "state": state, "questions": questions}, **kw)
+    loop = asyncio.get_running_loop()
+    slots = _drex_slots.setdefault(loop, asyncio.Semaphore(int(os.getenv("DREX_CONCURRENCY", "8"))))
+    async with slots:  # bounded, so a benchmark burst doesn't look like a flood
+        return await post_json("drex", DREX_URL, "NACE_API_KEY",
+                               {"model": DREX_MODEL, "state": state, "questions": questions}, **kw)
 
 
 async def qwen(messages: list[dict], *, max_tokens: int = 300, **kw) -> tuple[dict, float, bool]:

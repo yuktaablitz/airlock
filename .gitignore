@@ -11,3 +11,4 @@ __pycache__/
 *.pyc
 !runs/demo_*.jsonl
 !runs/archive_leaky/
+!runs/agent_bench*

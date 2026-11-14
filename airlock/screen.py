@@ -49,8 +49,9 @@ class ScreenResult(BaseModel):
 
 
 async def screen(content, meta: dict | None = None, user_goal: str = "", *, mode: str | None = None,
-                 write_audit: bool = True) -> ScreenResult:
-    """mode: 'recall' (Drex + Qwen on the band) or 'precision' (Drex only); default AIRLOCK_MODE."""
+                 refine: bool = True, write_audit: bool = True) -> ScreenResult:
+    """mode: 'recall' (Drex + Qwen on the band) or 'precision' (Drex only); default AIRLOCK_MODE.
+    refine=False removes whole blocked chunks (the ablation for coarse-to-fine redaction)."""
     t0 = time.perf_counter()
     meta = dict(meta or {})
     tau_low, tau_high = gate.thresholds(mode or gate.MODE)
@@ -83,17 +84,21 @@ async def screen(content, meta: dict | None = None, user_goal: str = "", *, mode
             s2_cost += system2.cost_usd(v)
 
     blocked = [c for c in chunks if decisions[c.id] == "BLOCK"]
+    # Coarse-to-fine: cut only the sentences of a blocked chunk that carry the instruction.
+    pieces, piece_p, refine_ms = await system1.refine(blocked, user_goal, source) if blocked and refine else (blocked, {}, 0.0)
+    p = {**s1.p, **piece_p}
     if kind == "json":
-        sanitized = redact.redact_json(body, blocked, s1.p)
+        sanitized = redact.redact_json(body, pieces, p)
     else:
-        sanitized = redact.header(blocked, s1.p, s1.doc_intent) + redact.redact_text(body, blocked, s1.p)
+        sanitized = redact.header(pieces, p, s1.doc_intent) + redact.redact_text(body, pieces, p)
 
     total_chars = sum(len(c.text) for c in chunks) or 1
-    removed_chars = sum(len(c.text) for c in blocked)
-    verdict = "clean" if not blocked else ("blocked" if removed_chars / total_chars > 0.8 else "redacted")
+    removed_chars = sum(len(c.text) for c in pieces)
+    verdict = "clean" if not pieces else ("blocked" if removed_chars / total_chars > 0.8 else "redacted")
     cost = (s1.tokens * clients.DREX_PRICE_IN + s1.out_tokens * clients.DREX_PRICE_OUT) / 1e6 + s2_cost
-    removed = [Removed(id=c.id, text=c.text, p=s1.p.get(c.id, 0.0), by=by[c.id], reason=reasons.get(c.id, ""),
-                       json_path=c.json_path) for c in blocked]
+    chunk_of = lambda piece_id: piece_id.split("s")[0]
+    removed = [Removed(id=c.id, text=c.text, p=p.get(c.id, 0.0), by=by[chunk_of(c.id)],
+                       reason=reasons.get(chunk_of(c.id), ""), json_path=c.json_path) for c in pieces]
     views = [ChunkView(id=c.id, text=c.text, start=c.start, end=c.end, p=s1.p.get(c.id, 0.0), decision=decisions[c.id],
                        by=by[c.id], signals=c.signals, json_path=c.json_path, reason=reasons.get(c.id, ""))
              for c in chunks]
@@ -101,7 +106,8 @@ async def screen(content, meta: dict | None = None, user_goal: str = "", *, mode
              "tokens": s1.tokens + s2_tokens, "s1_tokens": s1.tokens, "s2_tokens": s2_tokens,
              "cost_usd": cost, "total_ms": round((time.perf_counter() - t0) * 1000, 1),
              "request_ids": s1.request_ids, "cache_hits": s1.cache_hits, "parser": meta.get("parser"),
-             "tau_low": tau_low, "tau_high": tau_high, "mode": mode or gate.MODE}
+             "tau_low": tau_low, "tau_high": tau_high, "mode": mode or gate.MODE,
+             "refine_ms": round(refine_ms, 1), "removed_chars": removed_chars}
 
     if write_audit:
         sid = uuid.uuid4().hex[:12]
