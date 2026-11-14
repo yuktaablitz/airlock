@@ -232,7 +232,7 @@ async function runScenario(s, card) {
     $("rawDoc").innerHTML = highlight(d.raw, r.removed);
     $("safeDoc").innerHTML = esc(r.sanitized).replace(/\[airlock:[^\]]*\]/g, (m) => `<span class="cut">${m}</span>`);
     $("chips").innerHTML = r.chunks.map((c) => `<span class="chip ${c.decision}">${c.id} p=${c.p.toFixed(2)}</span>`).join("") +
-      (r.stats.parser === "pypdf+ndi" ? `<span class="chip ESCALATE">NDI: hidden text found</span>` : "");
+      (r.chunks.some((c) => c.signals.includes("hidden_text_not_visible_when_rendered")) ? `<span class="chip ESCALATE">NDI: hidden text found</span>` : "");
     $("timing").textContent = `Drex ${r.stats.s1_ms} ms · ${r.removed.length} cut`;
     receipt($("rcptRaw"), "WITHOUT AIRLOCK", d.without, s);
     receipt($("rcptSafe"), "WITH AIRLOCK", d.with, s);

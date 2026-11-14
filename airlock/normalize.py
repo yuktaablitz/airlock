@@ -24,7 +24,8 @@ def parse_document_ndi(path: str | Path) -> str:
 def _ndi_parse(path: str | Path) -> str:
     from nace_sdk import NaceClient
 
-    with NaceClient(api_key=os.environ["NACE_API_KEY"]) as client:
+    # Same host as Drex (clients.DREX_URL); console.nace.ai sits behind a bot checkpoint under load.
+    with NaceClient(api_key=os.environ["NACE_API_KEY"], base_url=os.getenv("NACE_BASE_URL", "https://drex.nace.ai")) as client:
         uploaded = client.documents.upload(Path(path), on_conflict="new_version")
         job = client.documents.parse(uploaded.as_source(), output={"formats": ["markdown"]})
         done = client.jobs.wait(job.job_id, timeout=120)
@@ -76,7 +77,8 @@ def normalize(content: Any, meta: dict | None = None) -> tuple[str | dict | list
         return content, "json"
     if isinstance(content, Path):
         text, visible = parse_document(content)
-        meta["parser"] = "pypdf+ndi" if visible is not None else "pypdf"
+        layer = "pypdf+" if content.suffix.lower() == ".pdf" else ""
+        meta["parser"] = f"{layer}ndi" if visible is not None else "pypdf"
         meta["visible_text"] = visible
         return text, "document"
     if meta.get("fetch") and isinstance(content, str) and content.strip().startswith(("http://", "https://")):
