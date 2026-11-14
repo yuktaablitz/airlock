@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -30,6 +31,8 @@ class ScreenRequest(BaseModel):
     content: str | dict | list
     meta: dict = {}
     user_goal: str = ""
+    mode: str | None = None  # precision | recall
+    live: bool = False  # bypass the replay cache
 
 
 class AgentRequest(BaseModel):
@@ -40,16 +43,19 @@ class AgentRequest(BaseModel):
 
 @app.post("/screen")
 async def screen_content(req: ScreenRequest) -> ScreenResult:
-    return await screen(req.content, req.meta, req.user_goal)
+    clients.CACHE_ON.set(not req.live)
+    return await screen(req.content, req.meta, req.user_goal, mode=req.mode)
 
 
 @app.post("/screen/file")
-async def screen_file(file: UploadFile = File(...), user_goal: str = Form("")) -> ScreenResult:
+async def screen_file(file: UploadFile = File(...), user_goal: str = Form(""), mode: str | None = Form(None),
+                      live: bool = Form(False)) -> ScreenResult:
+    clients.CACHE_ON.set(not live)
     suffix = Path(file.filename or "upload").suffix
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / f"upload{suffix}"
         path.write_bytes(await file.read())
-        return await screen(path, {"tool": "read_document", "source_name": file.filename}, user_goal)
+        return await screen(path, {"tool": "read_document", "source_name": file.filename}, user_goal, mode=mode)
 
 
 @app.post("/screen/sample/{name}")
@@ -88,17 +94,21 @@ async def scenarios() -> list[dict]:
 
 
 @app.post("/scenarios/{sid}/run")
-async def run_scenario(sid: str) -> dict:
-    """The injected variant, screened by Airlock, and the same agent acting on raw vs screened output."""
+async def run_scenario(sid: str, live: bool = False, mode: str | None = None) -> dict:
+    """The injected variant, screened by Airlock, and the same agent acting on raw vs screened output.
+    live=true skips the replay cache so every model call is made now."""
+    clients.CACHE_ON.set(not live)
     from eval.agent_bench import agent
     from eval.scenarios import ROOT as BENCH_ROOT, SCENARIOS, adobe_scenarios
 
     s = next(x for x in [*SCENARIOS, *adobe_scenarios()] if x.id == sid)
     content: str | Path = BENCH_ROOT / "demo" / "subtle" / "invoice.pdf" if sid == "finance-ap" else (s.image or s.injected)
-    r = await screen(content, {"tool": "read", "source_name": s.source}, s.task)
+    t0 = time.perf_counter()
+    r = await screen(content, {"tool": "read", "source_name": s.source}, s.task, mode=mode)
     seen = r.sanitized if isinstance(r.sanitized, str) else json.dumps(r.sanitized, indent=2)
     raw_calls, safe_calls = await asyncio.gather(agent(s, s.injected, 0), agent(s, seen, 0))
-    return {"screen": r.model_dump(), "raw": s.injected,
+    return {"screen": r.model_dump(), "raw": s.injected, "live": live,
+            "wall_ms": round((time.perf_counter() - t0) * 1000),
             "without": {"calls": raw_calls, "attacked": s.attacked(raw_calls), "utility": s.utility(raw_calls)},
             "with": {"calls": safe_calls, "attacked": s.attacked(safe_calls), "utility": s.utility(safe_calls)}}
 
@@ -151,6 +161,13 @@ async def allow(a: Allow) -> dict:
     with system1.ALLOW.open("a") as f:
         f.write(json.dumps(a.model_dump()) + "\n")
     return {"ok": True}
+
+
+@app.get("/scenario-image/{name}")
+async def scenario_image(name: str) -> FileResponse:
+    if name not in ("receipt", "game_guide"):
+        raise HTTPException(404)
+    return FileResponse(ROOT / "demo" / "adobe" / f"{name}.png")
 
 
 app.mount("/", StaticFiles(directory=ROOT / "web", html=True), name="web")

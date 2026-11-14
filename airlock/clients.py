@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import json
 import os
@@ -32,6 +33,9 @@ QWEN_PRICE_IN = float(os.getenv("QWEN_PRICE_IN", "0.20"))  # DeepInfra /models p
 QWEN_PRICE_OUT = float(os.getenv("QWEN_PRICE_OUT", "2.50"))
 
 # Keyed on the loop object (weakly), not id(): a closed loop's id can be reused by the next asyncio.run.
+# Live mode (the dashboard's toggle) turns the replay cache off for one request's model calls.
+CACHE_ON: contextvars.ContextVar[bool] = contextvars.ContextVar("airlock_cache_on", default=True)
+
 _http: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = weakref.WeakKeyDictionary()
 
 
@@ -54,9 +58,11 @@ class ModelError(RuntimeError):
 
 
 async def post_json(kind: str, url: str, key_env: str, body: dict, *, retries: int = 3,
-                    timeout: float = 60.0, use_cache: bool = True) -> tuple[dict, float, bool]:
+                    timeout: float = 60.0, use_cache: bool | None = None) -> tuple[dict, float, bool]:
     """POST `body`; returns (response json, wall ms, cache_hit). Cached by body hash."""
     path = _key(kind, body)
+    if use_cache is None:
+        use_cache = CACHE_ON.get()
     if use_cache and path.exists():
         data = json.loads(path.read_text())
         return data["response"], data["ms"], True
