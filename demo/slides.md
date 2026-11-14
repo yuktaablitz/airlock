@@ -36,5 +36,5 @@ uncertain band → Qwen3.8-27B → span redaction + audit log + human review loo
 - **We caught our own leak.** The first headline (7% FPR) was leaked. We split sentences and carriers, wrote a new holdout, and replaced the numbers. Every trial is in EXPERIMENTS.md.
 
 ## 7 · Upstream
-- PR to nace-ai/intern: `tool-result-guard`, Intern's **first packaged extension**. It uses Intern's own System 1 client, adds tests and a doc page, and carries this ablation, as CONTRIBUTING asks.
+- PR nace-ai/intern#4: `tool-result-guard`, Intern's **first packaged extension**. It uses Intern's own System 1 client, adds tests and a doc page, and carries this ablation, as CONTRIBUTING asks.
 - Repo: github.com/yuktaablitz/airlock · run `uvicorn airlock.service:app` → localhost:8000
